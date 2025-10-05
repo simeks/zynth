@@ -1,5 +1,6 @@
 const std = @import("std");
 const Allocator = std.mem.Allocator;
+const assert = std.debug.assert;
 
 const RiffHeader = extern struct {
     magic: [4]u8 align(1),
@@ -10,7 +11,7 @@ const RiffHeader = extern struct {
 const FormatChunk = extern struct {
     id: [4]u8 align(1),
     size: u32 align(1),
-    format: u16 align(1),
+    audio_format: u16 align(1),
     num_channels: u16 align(1),
     sample_rate: u32 align(1),
     byte_rate: u32 align(1),
@@ -23,7 +24,18 @@ const DataHeader = extern struct {
     size: u32 align(1),
 };
 
-pub fn readWav(gpa: Allocator, path: []const u8) ![]const u8 {
+pub const Sample = struct {
+    data: []u8,
+    num_channels: usize,
+    sample_rate: usize,
+    bits_per_sample: usize,
+
+    pub fn deinit(self: Sample, gpa: Allocator) void {
+        gpa.free(self.data);
+    }
+};
+
+pub fn readWav(gpa: Allocator, path: []const u8) !Sample {
     const f = try std.fs.cwd().openFile(path, .{});
     defer f.close();
 
@@ -42,6 +54,9 @@ pub fn readWav(gpa: Allocator, path: []const u8) ![]const u8 {
     if (!std.mem.eql(u8, &fmt_chunk.id, "fmt ")) {
         return error.InvalidWave;
     }
+    if (fmt_chunk.audio_format != 1) {
+        return error.NotPCM;
+    }
 
     const data_head = try reader.interface.takeStruct(DataHeader, .little);
     if (!std.mem.eql(u8, &data_head.id, "data")) {
@@ -49,8 +64,12 @@ pub fn readWav(gpa: Allocator, path: []const u8) ![]const u8 {
     }
 
     const data = try gpa.alloc(u8, data_head.size);
-    defer gpa.free(data);
     try reader.interface.readSliceAll(data);
 
-    return data;
+    return .{
+        .data = data,
+        .num_channels = fmt_chunk.num_channels,
+        .sample_rate = fmt_chunk.sample_rate,
+        .bits_per_sample = fmt_chunk.bits_per_sample,
+    };
 }

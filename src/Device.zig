@@ -9,6 +9,11 @@ pub const sample_format: pa.sample_format_t = pa.sample_format_t.FLOAT32LE;
 pub const sample_rate: u32 = 48000;
 pub const num_channels: u8 = 2;
 
+pub const Source = struct {
+    self: *anyopaque,
+    render: *const fn (*anyopaque, []u8) void,
+};
+
 const Device = @This();
 
 main_loop: *pa.threaded_mainloop,
@@ -18,7 +23,7 @@ context_state: pa.context.state_t,
 stream: ?*pa.stream,
 stream_state: pa.stream.state_t,
 
-synth: ?*Synth,
+source: ?Source,
 
 pub fn create(gpa: Allocator) !*Device {
     const main_loop = try pa.threaded_mainloop.new();
@@ -46,7 +51,7 @@ pub fn create(gpa: Allocator) !*Device {
         .context_state = .UNCONNECTED,
         .stream = null,
         .stream_state = .UNCONNECTED,
-        .synth = null,
+        .source = null,
     };
 
     try self.context.connect(null, .{}, null);
@@ -91,12 +96,12 @@ pub fn destroy(self: *Device, gpa: Allocator) void {
     gpa.destroy(self);
 }
 
-pub fn setSynth(self: *Device, synth: *Synth) !void {
+pub fn setSource(self: *Device, source: Source) !void {
     // Create output stream
     self.main_loop.lock();
     defer self.main_loop.unlock();
 
-    self.synth = synth;
+    self.source = source;
 
     const sample_spec: pa.sample_spec = .{
         .format = sample_format,
@@ -181,7 +186,7 @@ fn streamWriteCallback(
     };
 
     const dev: *Device = @ptrCast(@alignCast(userdata));
-    if (dev.synth) |synth| {
+    if (dev.source) |source| {
         var remaining_bytes = requested_bytes;
         while (remaining_bytes > 0) {
             var ptr_len: usize = remaining_bytes;
@@ -190,7 +195,7 @@ fn streamWriteCallback(
             const ptr = opt_ptr orelse @panic("error");
             const write_bytes = @min(ptr_len, remaining_bytes);
 
-            synth.render(ptr[0..write_bytes]);
+            source.render(source.self, ptr[0..write_bytes]);
 
             stream.write(ptr, write_bytes, null, 0, .RELATIVE) catch @panic("error");
             remaining_bytes -= write_bytes;
