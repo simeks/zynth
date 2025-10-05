@@ -1,0 +1,12 @@
+.{
+    .name = .zynth,
+    .version = "0.0.1",
+    .dependencies = .{
+        .pulseaudio = .{
+            .path = "deps/pulseaudio",
+        },
+    },
+    .minimum_zig_version = "0.15.1",
+    .paths = .{""},
+    .fingerprint = 0x290453d792b2cef5,
+}

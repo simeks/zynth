@@ -1,0 +1,17 @@
+.{
+    .name = .pulseaudio,
+    .version = "16.1.1-6",
+    .fingerprint = 0x73554b57d8fa4f9a,
+    .minimum_zig_version = "0.15.1",
+    .dependencies = .{},
+    .paths = .{
+        "GPL",
+        "LGPL",
+        "LICENSE",
+        "README.md",
+        "bindings.zig",
+        "build.zig",
+        "build.zig.zon",
+        "src",
+    },
+}
