@@ -5,6 +5,9 @@ const Device = @import("Device.zig");
 // Atari ST
 const clock_hz: f32 = 2_000_000.0;
 
+const lp_cutoff = 100.0;
+const voice_shift = 0.1;
+
 const Synth = @This();
 
 const Voice = struct {
@@ -26,11 +29,27 @@ const Voice = struct {
     }
 };
 
+/// First order low-pass filter
+const LowPassFilter = struct {
+    y: f32 = 0.0,
+
+    pub fn process(self: *LowPassFilter, u: f32) f32 {
+        const h = 1.0 / @as(f32, @floatFromInt(Device.sample_rate));
+        const tf = 1.0 / (2.0 * std.math.pi * lp_cutoff);
+        const alpha = h / (tf + h);
+
+        self.y += alpha * (u - self.y);
+        return self.y;
+    }
+};
+
 on: ?Key = null,
 mutex: std.Thread.Mutex = .{},
 
 voice1: Voice = .{},
-voice2: Voice = .{ .phase = 0.1 },
+voice2: Voice = .{ .phase = voice_shift },
+
+lp: LowPassFilter = .{},
 
 pub fn init() Synth {
     return .{};
@@ -72,8 +91,10 @@ pub fn render(self: *Synth, buffer: []u8) void {
         const s1: f32 = 0.25 * self.voice1.sample();
         const s2: f32 = 0.25 * self.voice2.sample();
 
-        var sample = 0.25 * 0.5 * (s1 + s2);
+        var sample = 0.5 * 0.5 * (s1 + s2);
         sample = std.math.clamp(sample, -0.9999, 0.9999);
+
+        sample = self.lp.process(sample);
 
         for (0..Device.num_channels) |_| {
             @memcpy(buffer[offset .. offset + 4], std.mem.asBytes(&sample));
