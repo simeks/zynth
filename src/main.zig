@@ -16,6 +16,13 @@ const Synth = @import("Synth.zig");
 
 var gpa_instance: std.heap.DebugAllocator(.{}) = .{};
 
+const KeyState = struct {
+    key: ?Synth.Key,
+    changed: bool,
+};
+
+var mouse_active_key: ?Synth.Key = null;
+
 const keyboard_keys = [_]struct { key: Synth.Key, label: []const u8 }{
     .{ .key = .c4, .label = "C" },
     .{ .key = .cs4, .label = "C#" },
@@ -108,9 +115,16 @@ fn drawKeyboard(gui: *Gui, state: *Synth.State) bool {
 
     var changed: bool = false;
 
-    if (state.key != null and !gui.input.mouse_left_down) {
-        state.key = null;
-        changed = true;
+    if (!gui.input.mouse_left_down) {
+        if (mouse_active_key) |active_mouse_key| {
+            mouse_active_key = null;
+            if (state.key) |current| {
+                if (current == active_mouse_key) {
+                    state.key = null;
+                    changed = true;
+                }
+            }
+        }
     }
 
     const white_indices = .{ 0, 2, 4, 5, 7, 9, 11 };
@@ -148,9 +162,12 @@ fn drawKeyboard(gui: *Gui, state: *Synth.State) bool {
         }
     }
 
-    if (gui.input.mouse_left_down and hovered_key != state.key) {
-        state.key = hovered_key;
-        changed = true;
+    if (gui.input.mouse_left_down and hovered_key != mouse_active_key) {
+        mouse_active_key = hovered_key;
+        if (state.key != hovered_key) {
+            state.key = hovered_key;
+            changed = true;
+        }
     }
 
     // Draw keys
@@ -173,6 +190,11 @@ fn drawKeyboard(gui: *Gui, state: *Synth.State) bool {
                     .held
                 else
                     .hover;
+            }
+        }
+        if (state.key) |active| {
+            if (active == keyboard_keys[key_idx].key) {
+                interact = .held;
             }
         }
 
@@ -219,6 +241,11 @@ fn drawKeyboard(gui: *Gui, state: *Synth.State) bool {
                     .held
                 else
                     .hover;
+            }
+        }
+        if (state.key) |active| {
+            if (active == keyboard_keys[key_idx].key) {
+                interact = .held;
             }
         }
 
@@ -292,6 +319,12 @@ pub fn main() !void {
     var input: Gui.InputState = .{};
     window.setMouseListener(?*Gui.InputState, mouseListener, &input);
 
+    var key_state: KeyState = .{
+        .key = null,
+        .changed = false,
+    };
+    window.setKeyListener(?*KeyState, keyListener, &key_state);
+
     const gui_pass: GuiPass = try .init(arena, gpu, gui);
     defer gui_pass.deinit(gpu);
 
@@ -301,13 +334,27 @@ pub fn main() !void {
         window.poll();
 
         const window_size = window.getSize();
+        var state_dirty = false;
+
+        if (key_state.changed) {
+            key_state.changed = false;
+            if (state.key != key_state.key) {
+                state.key = key_state.key;
+                state_dirty = true;
+            }
+        }
+
         {
             gui.beginFrame(.{ @floatFromInt(window_size[0]), @floatFromInt(window_size[1]) }, input);
             defer gui.endFrame();
 
             if (drawGui(gui, &state)) {
-                synth.updateState(state);
+                state_dirty = true;
             }
+        }
+
+        if (state_dirty) {
+            synth.updateState(state);
         }
 
         const frame = try gpu.beginFrame(.{
@@ -364,6 +411,42 @@ fn mouseListener(state: ?*Gui.InputState, event: Window.MouseEvent) void {
             .button => |button| {
                 if (button.button == .left) {
                     s.mouse_left_down = button.state == .pressed;
+                }
+            },
+        }
+    }
+}
+fn keyListener(state: ?*KeyState, event: Window.KeyEvent) void {
+    if (state) |s| {
+        const key: ?Synth.Key = switch (event.sym) {
+            'a' => .c4,
+            'w' => .cs4,
+            's' => .d4,
+            'e' => .ds4,
+            'd' => .e4,
+            'f' => .f4,
+            't' => .fs4,
+            'g' => .g4,
+            'y' => .gs4,
+            'h' => .a4,
+            'u' => .as4,
+            'j' => .b4,
+            else => null,
+        };
+
+        switch (event.state) {
+            .pressed => {
+                if (s.key == null or s.key.? != key) {
+                    s.key = key;
+                    s.changed = true;
+                }
+            },
+            .released => {
+                if (s.key) |current| {
+                    if (current == key) {
+                        s.key = null;
+                        s.changed = true;
+                    }
                 }
             },
         }
