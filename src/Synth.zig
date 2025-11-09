@@ -2,59 +2,86 @@ const std = @import("std");
 
 const Device = @import("Device.zig");
 
-// Atari ST
-const clock_hz: f32 = 2_000_000.0;
-
-const voice_shift = 0.1;
-
 const Synth = @This();
 
 pub const State = struct {
-    on: ?Key = null,
-
-    lp_cutoff: f32 = 100.0,
+    key: ?Key = null,
+    cutoff_hz: f32 = 1200.0,
+    resonance: f32 = 0.8,
 };
 
 const Voice = struct {
     phase: f32 = 0.0,
-    step: f32 = 0.0,
+    phase_inc: f32 = 0.0,
+    gate: bool = false,
 
-    fn setPeriod(self: *Voice, period: u32) void {
-        const n: f32 = if (period == 0) 1.0 else @floatFromInt(period);
-        const f = clock_hz / (16.0 * n);
-        self.step = f / @as(f32, @floatFromInt(Device.sample_rate));
-        if (!std.math.isFinite(self.step)) self.step = 0.0;
+    fn noteOn(self: *Voice, frequency: f32) void {
+        self.phase_inc = frequency / Device.sample_rate;
+        self.gate = true;
+    }
+
+    fn noteOff(self: *Voice) void {
+        self.gate = false;
     }
 
     fn sample(self: *Voice) f32 {
-        // Square wave
-        self.phase += self.step;
+        if (!self.gate or self.phase_inc == 0.0) {
+            return 0.0;
+        }
+
+        self.phase += self.phase_inc;
         if (self.phase >= 1.0) self.phase -= 1.0;
+
         return if (self.phase < 0.5) 1.0 else -1.0;
     }
 };
 
-/// First order low-pass filter
 const LowPassFilter = struct {
-    y: f32 = 0.0,
+    b0: f32 = 0.0,
+    b1: f32 = 0.0,
+    b2: f32 = 0.0,
+    a1: f32 = 0.0,
+    a2: f32 = 0.0,
+    z1: f32 = 0.0,
+    z2: f32 = 0.0,
 
-    pub fn process(self: *LowPassFilter, u: f32, state: *const State) f32 {
-        const h = 1.0 / @as(f32, @floatFromInt(Device.sample_rate));
-        const tf = 1.0 / (2.0 * std.math.pi * state.lp_cutoff);
-        const alpha = h / (tf + h);
+    fn init() LowPassFilter {
+        var filter: LowPassFilter = .{};
+        filter.setParams(1200.0, 0.8);
+        return filter;
+    }
 
-        self.y += alpha * (u - self.y);
-        return self.y;
+    fn setParams(self: *LowPassFilter, cutoff_hz: f32, resonance: f32) void {
+        const sr = Device.sample_rate;
+        const fc = std.math.clamp(cutoff_hz, 20.0, sr * 0.45);
+        const q = std.math.clamp(resonance, 0.1, 10.0);
+
+        const omega = std.math.tau * fc / sr;
+        const sin_w0 = std.math.sin(omega);
+        const cos_w0 = std.math.cos(omega);
+        const alpha = sin_w0 / (2.0 * q);
+        const norm = 1.0 / (1.0 + alpha);
+
+        self.b0 = ((1.0 - cos_w0) * 0.5) * norm;
+        self.b1 = (1.0 - cos_w0) * norm;
+        self.b2 = self.b0;
+        self.a1 = (-2.0 * cos_w0) * norm;
+        self.a2 = (1.0 - alpha) * norm;
+    }
+
+    fn process(self: *LowPassFilter, sample: f32) f32 {
+        const out = sample * self.b0 + self.z1;
+        self.z1 = sample * self.b1 + self.z2 - self.a1 * out;
+        self.z2 = sample * self.b2 - self.a2 * out;
+        return out;
     }
 };
 
 state: State = .{},
 mutex: std.Thread.Mutex = .{},
 
-voice1: Voice = .{},
-voice2: Voice = .{ .phase = voice_shift },
-
-lp: LowPassFilter = .{},
+voice: Voice = .{},
+filter: LowPassFilter = .init(),
 
 pub fn init() Synth {
     return .{};
@@ -69,18 +96,17 @@ pub fn updateState(self: *Synth, state: State) void {
 
     self.state = state;
 
-    if (self.state.on) |key| {
-        const freq = key_to_freq[@intFromEnum(key)];
-        var period: u32 = @intFromFloat(@floor(clock_hz / (16.0 * freq)));
-        if (period == 0) period = 1;
-
-        self.voice1.setPeriod(std.math.clamp(period, 0, 0xfff));
-        self.voice2.setPeriod(std.math.clamp(period, 0, 0xfff));
+    if (state.key) |key| {
+        self.voice.noteOn(key_to_freq[@intFromEnum(key)]);
+    } else {
+        self.voice.noteOff();
     }
+
+    self.filter.setParams(state.cutoff_hz, state.resonance);
 }
+
 pub fn render(self: *Synth, buffer: []u8) void {
     comptime if (Device.sample_format != .FLOAT32LE) {
-        // Below we assume little-endian float
         @compileError("pls fix");
     };
 
@@ -91,13 +117,9 @@ pub fn render(self: *Synth, buffer: []u8) void {
 
     var offset: usize = 0;
     while (offset + frame_len <= buffer.len) {
-        const s1: f32 = 0.25 * self.voice1.sample();
-        const s2: f32 = 0.25 * self.voice2.sample();
-
-        var sample = 0.5 * 0.5 * (s1 + s2);
+        var sample = 0.2 * self.voice.sample();
+        sample = self.filter.process(sample);
         sample = std.math.clamp(sample, -0.9999, 0.9999);
-
-        sample = self.lp.process(sample, &self.state);
 
         for (0..Device.num_channels) |_| {
             @memcpy(buffer[offset .. offset + 4], std.mem.asBytes(&sample));
@@ -128,7 +150,6 @@ pub const Key = enum {
     b4,
 };
 
-/// https://inspiredacoustics.com/en/MIDI_note_numbers_and_center_frequencies
 const key_to_freq = std.enums.directEnumArray(Key, f32, 0, .{
     .c4 = 261.63,
     .cs4 = 277.18,

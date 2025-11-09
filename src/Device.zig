@@ -6,7 +6,7 @@ const pa = @import("pulseaudio");
 const Synth = @import("main.zig").Synth;
 
 pub const sample_format: pa.sample_format_t = pa.sample_format_t.FLOAT32LE;
-pub const sample_rate: u32 = 48000;
+pub const sample_rate = 48000;
 pub const num_channels: u8 = 2;
 
 pub const Source = struct {
@@ -134,8 +134,6 @@ pub fn setSource(self: *Device, source: Source) !void {
 
     try stream.connect_playback(null, null, .{
         .START_CORKED = true,
-        .INTERPOLATE_TIMING = true,
-        .AUTO_TIMING_UPDATE = true,
         .FIX_FORMAT = true,
         .FIX_RATE = true,
         .FIX_CHANNELS = true,

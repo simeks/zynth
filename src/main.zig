@@ -1,8 +1,5 @@
 const std = @import("std");
 const Allocator = std.mem.Allocator;
-const assert = std.debug.assert;
-const print = std.debug.print;
-const posix = std.posix;
 
 const smath = @import("smath");
 const sgui = @import("sgui");
@@ -16,32 +13,239 @@ const Vec2 = smath.Vec2;
 
 const Device = @import("Device.zig");
 const Synth = @import("Synth.zig");
-const Sampler = @import("Sampler.zig");
 
 var gpa_instance: std.heap.DebugAllocator(.{}) = .{};
 
+const keyboard_keys = [_]struct { key: Synth.Key, label: []const u8 }{
+    .{ .key = .c4, .label = "C" },
+    .{ .key = .cs4, .label = "C#" },
+    .{ .key = .d4, .label = "D" },
+    .{ .key = .ds4, .label = "D#" },
+    .{ .key = .e4, .label = "E" },
+    .{ .key = .f4, .label = "F" },
+    .{ .key = .fs4, .label = "F#" },
+    .{ .key = .g4, .label = "G" },
+    .{ .key = .gs4, .label = "G#" },
+    .{ .key = .a4, .label = "A" },
+    .{ .key = .as4, .label = "A#" },
+    .{ .key = .b4, .label = "B" },
+};
+
 pub fn drawGui(gui: *Gui, state: *Synth.State) bool {
+    if (gui.display_size[0] == 0 or gui.display_size[1] == 0) {
+        return false;
+    }
     var changed: bool = false;
 
-    gui.beginPanel("root", .{});
-    gui.label("hello world!", .{});
-    if (gui.button("A", .{})) {
-        changed = true;
-        state.on = .a4;
-    }
-    if (gui.button("B", .{})) {
-        changed = true;
-        state.on = .b4;
-    }
-    if (gui.button("Off", .{})) {
-        changed = true;
-        state.on = null;
+    gui.beginPanel("root", .{
+        .padding = .{ 24.0, 24.0 },
+        .spacing = 18.0,
+    });
+    defer gui.endPanel();
+
+    gui.label("Zynth", .{ .size = 40, .color = gui.style.accent_color });
+
+    {
+        gui.beginPanel("filter_panel", .{ .direction = .horizontal, .spacing = 16.0 });
+        defer gui.endPanel();
+
+        {
+            gui.beginPanel("Cutoff", .{ .direction = .vertical, .spacing = 4.0 });
+            defer gui.endPanel();
+
+            if (gui.knob("cutoff", &state.cutoff_hz, 20.0, 2000.0, .{})) {
+                changed = true;
+            }
+            gui.labelFmt("Cutoff\n{d:.0} Hz", .{state.cutoff_hz}, .{});
+        }
+
+        {
+            gui.beginPanel("Q", .{ .direction = .vertical, .spacing = 4.0 });
+            defer gui.endPanel();
+
+            if (gui.knob("q", &state.resonance, 0.0, 10.0, .{})) {
+                changed = true;
+            }
+            gui.labelFmt("Q\n{d:.2}", .{state.resonance}, .{});
+        }
     }
 
-    if (gui.knob("LP", &state.lp_cutoff, 0, 1000, .{})) {
+    changed |= drawKeyboard(gui, state);
+
+    return changed;
+}
+
+/// Draws an interactive keyboard
+fn drawKeyboard(gui: *Gui, state: *Synth.State) bool {
+    const Color = sgui.Color;
+    const Rect = sgui.Rect;
+    const Interact = enum {
+        none,
+        hover,
+        held,
+    };
+
+    const white_base: Color = .rgb(245, 245, 245);
+    const white_hover: Color = .rgb(255, 255, 255);
+    const black_base: Color = .rgb(20, 20, 20);
+    const black_hover: Color = .rgb(60, 60, 60);
+
+    const next_pos = gui.nextPosition();
+    const mouse_position = gui.input.mouse_position;
+
+    const label_size = 14;
+
+    const keyboard_rect = gui.reserveRect(.{
+        gui.display_size[0] - 48.0,
+        gui.display_size[1] - next_pos[1] - 24.0,
+    });
+    gui.main_commands.append(gui.gpa, .{
+        .rect = .{
+            .rect = keyboard_rect,
+            .color = gui.style.panel_background_color,
+        },
+    }) catch @panic("oom");
+
+    var changed: bool = false;
+
+    if (state.key != null and !gui.input.mouse_left_down) {
+        state.key = null;
         changed = true;
     }
-    gui.endPanel();
+
+    const white_indices = .{ 0, 2, 4, 5, 7, 9, 11 };
+    const black_indices = .{ 1, 3, 6, 8, 10 };
+
+    const white_width = keyboard_rect.width / @as(f32, @floatFromInt(white_indices.len));
+    const black_width = white_width * 0.6;
+    const black_shift = .{ 1, 2, 4, 5, 6 };
+
+    var hovered_key: ?Synth.Key = null;
+
+    // Gather input first to ensure black keys get prio
+    inline for (0.., black_indices) |i, key_idx| {
+        const rect: Rect = .{
+            .x = keyboard_rect.x + white_width * black_shift[i] - 0.5 * black_width,
+            .y = keyboard_rect.y,
+            .width = black_width,
+            .height = keyboard_rect.height * 0.6,
+        };
+
+        if (hovered_key == null and rect.containsPoint(mouse_position)) {
+            hovered_key = keyboard_keys[key_idx].key;
+        }
+    }
+    inline for (0.., white_indices) |i, key_idx| {
+        const rect: Rect = .{
+            .x = keyboard_rect.x + white_width * @as(f32, @floatFromInt(i)),
+            .y = keyboard_rect.y,
+            .width = white_width,
+            .height = keyboard_rect.height,
+        };
+
+        if (hovered_key == null and rect.containsPoint(mouse_position)) {
+            hovered_key = keyboard_keys[key_idx].key;
+        }
+    }
+
+    if (gui.input.mouse_left_down and hovered_key != state.key) {
+        state.key = hovered_key;
+        changed = true;
+    }
+
+    // Draw keys
+
+    inline for (0.., white_indices) |i, key_idx| {
+        const rect: Rect = .{
+            .x = keyboard_rect.x + white_width * @as(f32, @floatFromInt(i)),
+            .y = keyboard_rect.y,
+            .width = white_width,
+            .height = keyboard_rect.height,
+        };
+
+        var interact: Interact = .none;
+        if (hovered_key) |hovered| {
+            if (hovered == keyboard_keys[key_idx].key) {
+                interact = if (gui.input.mouse_left_down)
+                    .held
+                else
+                    .hover;
+            }
+        }
+
+        const label = keyboard_keys[key_idx].label;
+
+        const text_size = gui.measureText(label, .{ .size = label_size });
+        gui.main_commands.appendSlice(gui.gpa, &.{
+            .{
+                .rect = .{
+                    .rect = rect,
+                    .color = switch (interact) {
+                        .none => white_base,
+                        .hover => white_hover,
+                        .held => gui.style.accent_color,
+                    },
+                },
+            },
+            .{
+                .text = .{
+                    .position = .{
+                        rect.x + (rect.width - text_size[0]) * 0.5,
+                        rect.y + rect.height - label_size - 6.0,
+                    },
+                    .text = label,
+                    .color = .rgb(40, 40, 40),
+                    .size = label_size,
+                },
+            },
+        }) catch @panic("oom");
+    }
+
+    inline for (0.., black_indices) |i, key_idx| {
+        const rect: Rect = .{
+            .x = keyboard_rect.x + white_width * black_shift[i] - 0.5 * black_width,
+            .y = keyboard_rect.y,
+            .width = black_width,
+            .height = keyboard_rect.height * 0.6,
+        };
+
+        var interact: Interact = .none;
+        if (hovered_key) |hovered| {
+            if (hovered == keyboard_keys[key_idx].key) {
+                interact = if (gui.input.mouse_left_down)
+                    .held
+                else
+                    .hover;
+            }
+        }
+
+        const label = keyboard_keys[key_idx].label;
+
+        const text_size = gui.measureText(label, .{ .size = label_size });
+        gui.main_commands.appendSlice(gui.gpa, &.{
+            .{
+                .rect = .{
+                    .rect = rect,
+                    .color = switch (interact) {
+                        .none => black_base,
+                        .hover => black_hover,
+                        .held => gui.style.accent_color,
+                    },
+                },
+            },
+            .{
+                .text = .{
+                    .position = .{
+                        rect.x + (rect.width - text_size[0]) * 0.5,
+                        rect.y + rect.height - label_size - 6.0,
+                    },
+                    .text = label,
+                    .color = .white,
+                    .size = label_size,
+                },
+            },
+        }) catch @panic("oom");
+    }
 
     return changed;
 }
@@ -58,14 +262,15 @@ pub fn main() !void {
     const dev = try Device.create(gpa);
     defer dev.destroy(gpa);
 
-    var state: Synth.State = .{};
-
     var synth: Synth = .init();
     defer synth.deinit();
 
+    var state: Synth.State = .{};
+    synth.updateState(state);
+
     try dev.setSource(synth.interface());
 
-    var window: Window = try .init(gpa, "boxelvox");
+    var window: Window = try .init(gpa, "zynth");
     defer window.deinit(gpa);
 
     const gpu: *Gpu = try .create(
@@ -74,7 +279,7 @@ pub fn main() !void {
             .display = window.display,
             .surface = window.surface,
         },
-        .{ 800, 600 },
+        .{ 800, 500 },
     );
     defer gpu.destroy();
 
@@ -82,7 +287,7 @@ pub fn main() !void {
     defer gui.destroy();
 
     var input: Gui.InputState = .{};
-    window.setMouseListener(?*Gui.InputState, handleMouse, &input);
+    window.setMouseListener(?*Gui.InputState, mouseListener, &input);
 
     const gui_pass: GuiPass = try .init(arena, gpu, gui);
     defer gui_pass.deinit(gpu);
@@ -133,49 +338,9 @@ pub fn main() !void {
         try gpu.submit(cmd);
         try gpu.present();
     }
-    // const gui: Gui = try .init();
-    // defer gui.deinit();
-
-    // var sampler: Sampler = try .init(gpa, "gc.wav");
-    // defer sampler.deinit(gpa);
-    // try dev.setSource(sampler.interface());
-
-    // var buf: [1]u8 = undefined;
-    //
-    // while (true) {
-    //     const n = try posix.read(posix.STDIN_FILENO, &buf);
-    //     if (n > 0) {
-    //         if (buf[0] == 'q') {
-    //             break;
-    //         }
-    //
-    //         if (buf[0] == ' ') {
-    //             synth.keyOff();
-    //             continue;
-    //         }
-    //
-    //         const key: Synth.Key = switch (buf[0]) {
-    //             'a' => .c4,
-    //             'w' => .cs4,
-    //             's' => .d4,
-    //             'e' => .ds4,
-    //             'd' => .e4,
-    //             'f' => .f4,
-    //             't' => .fs4,
-    //             'g' => .g4,
-    //             'y' => .gs4,
-    //             'h' => .a4,
-    //             'u' => .as4,
-    //             'j' => .b4,
-    //             else => continue,
-    //         };
-    //         synth.keyOn(key);
-    //     }
-    //     try std.Thread.yield();
-    // }
 }
 
-fn handleMouse(state: ?*Gui.InputState, event: Window.MouseEvent) void {
+fn mouseListener(state: ?*Gui.InputState, event: Window.MouseEvent) void {
     if (state) |s| {
         switch (event) {
             .enter => |enter| {
