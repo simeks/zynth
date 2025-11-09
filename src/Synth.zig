@@ -5,10 +5,15 @@ const Device = @import("Device.zig");
 // Atari ST
 const clock_hz: f32 = 2_000_000.0;
 
-const lp_cutoff = 100.0;
 const voice_shift = 0.1;
 
 const Synth = @This();
+
+pub const State = struct {
+    on: ?Key = null,
+
+    lp_cutoff: f32 = 100.0,
+};
 
 const Voice = struct {
     phase: f32 = 0.0,
@@ -33,9 +38,9 @@ const Voice = struct {
 const LowPassFilter = struct {
     y: f32 = 0.0,
 
-    pub fn process(self: *LowPassFilter, u: f32) f32 {
+    pub fn process(self: *LowPassFilter, u: f32, state: *const State) f32 {
         const h = 1.0 / @as(f32, @floatFromInt(Device.sample_rate));
-        const tf = 1.0 / (2.0 * std.math.pi * lp_cutoff);
+        const tf = 1.0 / (2.0 * std.math.pi * state.lp_cutoff);
         const alpha = h / (tf + h);
 
         self.y += alpha * (u - self.y);
@@ -43,7 +48,7 @@ const LowPassFilter = struct {
     }
 };
 
-on: ?Key = null,
+state: State = .{},
 mutex: std.Thread.Mutex = .{},
 
 voice1: Voice = .{},
@@ -58,22 +63,20 @@ pub fn deinit(self: *Synth) void {
     _ = self;
 }
 
-pub fn keyOn(self: *Synth, key: Key) void {
+pub fn updateState(self: *Synth, state: State) void {
     self.mutex.lock();
     defer self.mutex.unlock();
-    self.on = key;
 
-    const freq = key_to_freq[@intFromEnum(key)];
-    var period: u32 = @intFromFloat(@floor(clock_hz / (16.0 * freq)));
-    if (period == 0) period = 1;
+    self.state = state;
 
-    self.voice1.setPeriod(std.math.clamp(period, 0, 0xfff));
-    self.voice2.setPeriod(std.math.clamp(period, 0, 0xfff));
-}
-pub fn keyOff(self: *Synth) void {
-    self.mutex.lock();
-    defer self.mutex.unlock();
-    self.on = null;
+    if (self.state.on) |key| {
+        const freq = key_to_freq[@intFromEnum(key)];
+        var period: u32 = @intFromFloat(@floor(clock_hz / (16.0 * freq)));
+        if (period == 0) period = 1;
+
+        self.voice1.setPeriod(std.math.clamp(period, 0, 0xfff));
+        self.voice2.setPeriod(std.math.clamp(period, 0, 0xfff));
+    }
 }
 pub fn render(self: *Synth, buffer: []u8) void {
     comptime if (Device.sample_format != .FLOAT32LE) {
@@ -94,7 +97,7 @@ pub fn render(self: *Synth, buffer: []u8) void {
         var sample = 0.5 * 0.5 * (s1 + s2);
         sample = std.math.clamp(sample, -0.9999, 0.9999);
 
-        sample = self.lp.process(sample);
+        sample = self.lp.process(sample, &self.state);
 
         for (0..Device.num_channels) |_| {
             @memcpy(buffer[offset .. offset + 4], std.mem.asBytes(&sample));

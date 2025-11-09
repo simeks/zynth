@@ -5,8 +5,15 @@
         .pulseaudio = .{
             .path = "deps/pulseaudio",
         },
+        .simeks = .{
+            .path = "../simeks-zig",
+        },
     },
     .minimum_zig_version = "0.15.1",
-    .paths = .{""},
     .fingerprint = 0x290453d792b2cef5,
+    .paths = .{
+        "build.zig",
+        "build.zig.zon",
+        "src",
+    },
 }
