@@ -155,11 +155,14 @@ fn drawKeyboard(gui: *Gui, state: *Synth.State) bool {
 
     // Draw keys
 
+    // Add padding for drawing only, for input we want uninterrupted sliding between keys
+    const key_padding = 2;
+
     inline for (0.., white_indices) |i, key_idx| {
         const rect: Rect = .{
             .x = keyboard_rect.x + white_width * @as(f32, @floatFromInt(i)),
             .y = keyboard_rect.y,
-            .width = white_width,
+            .width = white_width - 2.0 * key_padding,
             .height = keyboard_rect.height,
         };
 
@@ -203,9 +206,9 @@ fn drawKeyboard(gui: *Gui, state: *Synth.State) bool {
 
     inline for (0.., black_indices) |i, key_idx| {
         const rect: Rect = .{
-            .x = keyboard_rect.x + white_width * black_shift[i] - 0.5 * black_width,
+            .x = keyboard_rect.x + white_width * black_shift[i] - 0.5 * black_width + key_padding,
             .y = keyboard_rect.y,
-            .width = black_width,
+            .width = black_width - 2.0 * key_padding,
             .height = keyboard_rect.height * 0.6,
         };
 
