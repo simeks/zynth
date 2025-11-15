@@ -4,10 +4,16 @@ const Device = @import("Device.zig");
 
 const Synth = @This();
 
+pub const EnvelopeParams = struct {
+    attack_ms: f32 = 5.0,
+    release_ms: f32 = 150.0,
+};
+
 pub const State = struct {
     key: ?Key = null,
     cutoff_hz: f32 = 1200.0,
     resonance: f32 = 0.8,
+    env: EnvelopeParams = .{},
 };
 
 const Voice = struct {
@@ -25,7 +31,7 @@ const Voice = struct {
     }
 
     fn sample(self: *Voice) f32 {
-        if (!self.gate or self.phase_inc == 0.0) {
+        if (self.phase_inc == 0.0) {
             return 0.0;
         }
 
@@ -33,6 +39,46 @@ const Voice = struct {
         if (self.phase >= 1.0) self.phase -= 1.0;
 
         return if (self.phase < 0.5) 1.0 else -1.0;
+    }
+};
+
+const Envelope = struct {
+    params: EnvelopeParams,
+    attack_step: f32,
+    release_step: f32,
+    value: f32,
+
+    fn init() Envelope {
+        return .{
+            .params = .{},
+            .attack_step = 1.0,
+            .release_step = 1.0,
+            .value = 0.0,
+        };
+    }
+
+    fn setParams(self: *Envelope, params: EnvelopeParams) void {
+        self.params = params;
+        self.attack_step = timeToStep(self.params.attack_ms);
+        self.release_step = timeToStep(self.params.release_ms);
+    }
+
+    fn process(self: *Envelope, target: f32) f32 {
+        if (target > self.value) {
+            self.value = @min(self.value + self.attack_step, target);
+        } else {
+            self.value = @max(self.value - self.release_step, target);
+        }
+        return self.value;
+    }
+
+    fn timeToStep(ms: f32) f32 {
+        if (ms <= 0.0) return 1.0;
+
+        const samples = @as(f32, @floatFromInt(Device.sample_rate)) * ms / std.time.ms_per_s;
+        if (samples <= 1.0) return 1.0;
+
+        return 1.0 / samples;
     }
 };
 
@@ -77,14 +123,21 @@ const LowPassFilter = struct {
     }
 };
 
-state: State = .{},
-mutex: std.Thread.Mutex = .{},
+state: State,
+mutex: std.Thread.Mutex,
 
-voice: Voice = .{},
-filter: LowPassFilter = .init(),
+voice: Voice,
+filter: LowPassFilter,
+env: Envelope,
 
 pub fn init() Synth {
-    return .{};
+    return .{
+        .state = .{},
+        .mutex = .{},
+        .voice = .{},
+        .filter = .init(),
+        .env = .init(),
+    };
 }
 pub fn deinit(self: *Synth) void {
     _ = self;
@@ -103,6 +156,7 @@ pub fn updateState(self: *Synth, state: State) void {
     }
 
     self.filter.setParams(state.cutoff_hz, state.resonance);
+    self.env.setParams(state.env);
 }
 
 pub fn render(self: *Synth, buffer: []u8) void {
@@ -117,8 +171,15 @@ pub fn render(self: *Synth, buffer: []u8) void {
 
     var offset: usize = 0;
     while (offset + frame_len <= buffer.len) {
-        var sample = 0.2 * self.voice.sample();
+        var sample = self.voice.sample();
         sample = self.filter.process(sample);
+
+        const env_value = self.env.process(if (self.voice.gate) 1.0 else 0.0);
+        if (!self.voice.gate and env_value <= 0.0001) {
+            self.voice.phase_inc = 0.0;
+        }
+
+        sample = 0.2 * env_value * sample;
         sample = std.math.clamp(sample, -0.9999, 0.9999);
 
         for (0..Device.num_channels) |_| {

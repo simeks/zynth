@@ -75,6 +75,29 @@ pub fn drawGui(gui: *Gui, state: *Synth.State) bool {
             }
             gui.labelFmt("Q\n{d:.2}", .{state.resonance}, .{});
         }
+
+        gui.beginPanel("env_panel", .{ .direction = .horizontal, .spacing = 16.0 });
+        defer gui.endPanel();
+
+        {
+            gui.beginPanel("Attack", .{ .direction = .vertical, .spacing = 4.0 });
+            defer gui.endPanel();
+
+            if (gui.knob("attack", &state.env.attack_ms, 0.0, 500.0, .{})) {
+                changed = true;
+            }
+            gui.labelFmt("Attack\n{d:.0} ms", .{state.env.attack_ms}, .{});
+        }
+
+        {
+            gui.beginPanel("Release", .{ .direction = .vertical, .spacing = 4.0 });
+            defer gui.endPanel();
+
+            if (gui.knob("release", &state.env.release_ms, 0.0, 2000.0, .{})) {
+                changed = true;
+            }
+            gui.labelFmt("Release\n{d:.0} ms", .{state.env.release_ms}, .{});
+        }
     }
 
     changed |= drawKeyboard(gui, state);
@@ -103,8 +126,8 @@ fn drawKeyboard(gui: *Gui, state: *Synth.State) bool {
     const label_size = 14;
 
     const keyboard_rect = gui.reserveRect(.{
-        gui.display_size[0] - 48.0,
-        gui.display_size[1] - next_pos[1] - 24.0,
+        @max(0.0, gui.display_size[0] - 48.0),
+        @max(0.0, gui.display_size[1] - next_pos[1] - 24.0),
     });
     gui.main_commands.append(gui.gpa, .{
         .rect = .{
