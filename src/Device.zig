@@ -81,15 +81,30 @@ pub fn create(gpa: Allocator) !*Device {
     return self;
 }
 pub fn destroy(self: *Device, gpa: Allocator) void {
-    {
-        self.main_loop.lock();
-        defer self.main_loop.unlock();
-        if (self.stream) |stream| {
-            _ = stream.disconnect();
-            stream.unref();
+    self.main_loop.lock();
+
+    if (self.stream) |stream| {
+        _ = stream.disconnect();
+        while (true) {
+            switch (self.stream_state) {
+                .FAILED, .TERMINATED, .UNCONNECTED => break,
+                else => self.main_loop.wait(),
+            }
+        }
+        stream.unref();
+        self.stream = null;
+    }
+
+    _ = self.context.disconnect();
+    while (true) {
+        switch (self.context_state) {
+            .FAILED, .TERMINATED, .UNCONNECTED => break,
+            else => self.main_loop.wait(),
         }
     }
-    _ = self.context.disconnect();
+
+    self.main_loop.unlock();
+
     self.context.unref();
     self.main_loop.stop();
     self.main_loop.free();
