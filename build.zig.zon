@@ -6,8 +6,8 @@
             .path = "deps/pulseaudio",
         },
         .simeks = .{
-            .url = "git+https://github.com/simeks/simeks-zig#c4a522095948e563f9d85d5a25e79e2a54511da8",
-            .hash = "simeks-0.0.1-E8UI-Ar4AwDnytoYks2wGF_RVY-1m7mBf_n41figl4yx",
+            .url = "git+https://github.com/simeks/simeks-zig#ff6770446e57243e72db2c76fdd4ba07153de35b",
+            .hash = "simeks-0.0.1-E8UI-IUABACqfA8eyvpTXxpaEe6U6qc22J_XIQDRe2xk",
         },
     },
     .minimum_zig_version = "0.15.1",

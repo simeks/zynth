@@ -11,6 +11,7 @@ pub const EnvelopeParams = struct {
 
 pub const State = struct {
     key: ?Key = null,
+    octave: i32 = 4,
     cutoff_hz: f32 = 1200.0,
     resonance: f32 = 0.8,
     env: EnvelopeParams = .{},
@@ -150,7 +151,7 @@ pub fn updateState(self: *Synth, state: State) void {
     self.state = state;
 
     if (state.key) |key| {
-        self.voice.noteOn(key_to_freq[@intFromEnum(key)]);
+        self.voice.noteOn(keyFrequency(key, state.octave));
     } else {
         self.voice.noteOff();
     }
@@ -197,31 +198,38 @@ pub fn interface(self: *Synth) Device.Source {
 }
 
 pub const Key = enum {
-    c4,
-    cs4,
-    d4,
-    ds4,
-    e4,
-    f4,
-    fs4,
-    g4,
-    gs4,
-    a4,
-    as4,
-    b4,
+    c,
+    cs,
+    d,
+    ds,
+    e,
+    f,
+    fs,
+    g,
+    gs,
+    a,
+    as,
+    b,
 };
 
 const key_to_freq = std.enums.directEnumArray(Key, f32, 0, .{
-    .c4 = 261.63,
-    .cs4 = 277.18,
-    .d4 = 293.66,
-    .ds4 = 311.13,
-    .e4 = 329.63,
-    .f4 = 349.23,
-    .fs4 = 369.99,
-    .g4 = 392.00,
-    .gs4 = 415.30,
-    .a4 = 440.00,
-    .as4 = 466.16,
-    .b4 = 493.88,
+    .c = 261.63,
+    .cs = 277.18,
+    .d = 293.66,
+    .ds = 311.13,
+    .e = 329.63,
+    .f = 349.23,
+    .fs = 369.99,
+    .g = 392.00,
+    .gs = 415.30,
+    .a = 440.00,
+    .as = 466.16,
+    .b = 493.88,
 });
+
+fn keyFrequency(key: Key, octave: i32) f32 {
+    const base = key_to_freq[@intFromEnum(key)];
+    const octave_offset = octave - 4;
+    if (octave_offset == 0) return base;
+    return base * std.math.pow(f32, 2.0, @floatFromInt(octave_offset));
+}

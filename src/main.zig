@@ -24,18 +24,18 @@ const KeyState = struct {
 var mouse_active_key: ?Synth.Key = null;
 
 const keyboard_keys = [_]struct { key: Synth.Key, label: []const u8 }{
-    .{ .key = .c4, .label = "C" },
-    .{ .key = .cs4, .label = "C#" },
-    .{ .key = .d4, .label = "D" },
-    .{ .key = .ds4, .label = "D#" },
-    .{ .key = .e4, .label = "E" },
-    .{ .key = .f4, .label = "F" },
-    .{ .key = .fs4, .label = "F#" },
-    .{ .key = .g4, .label = "G" },
-    .{ .key = .gs4, .label = "G#" },
-    .{ .key = .a4, .label = "A" },
-    .{ .key = .as4, .label = "A#" },
-    .{ .key = .b4, .label = "B" },
+    .{ .key = .c, .label = "C" },
+    .{ .key = .cs, .label = "C#" },
+    .{ .key = .d, .label = "D" },
+    .{ .key = .ds, .label = "D#" },
+    .{ .key = .e, .label = "E" },
+    .{ .key = .f, .label = "F" },
+    .{ .key = .fs, .label = "F#" },
+    .{ .key = .g, .label = "G" },
+    .{ .key = .gs, .label = "G#" },
+    .{ .key = .a, .label = "A" },
+    .{ .key = .as, .label = "A#" },
+    .{ .key = .b, .label = "B" },
 };
 
 pub fn drawGui(gui: *Gui, state: *Synth.State) bool {
@@ -57,13 +57,23 @@ pub fn drawGui(gui: *Gui, state: *Synth.State) bool {
         defer gui.endPanel();
 
         {
+            gui.beginPanel("Octave", .{ .direction = .vertical, .spacing = 4.0 });
+            defer gui.endPanel();
+
+            if (gui.discreteKnob("octave", &state.octave, 5, .{})) {
+                changed = true;
+            }
+            gui.labelFmt("Octave\n{d}", .{state.octave}, .{});
+        }
+
+        {
             gui.beginPanel("Cutoff", .{ .direction = .vertical, .spacing = 4.0 });
             defer gui.endPanel();
 
             if (gui.knob("cutoff", &state.cutoff_hz, 20.0, 2000.0, .{})) {
                 changed = true;
             }
-            gui.labelFmt("Cutoff\n{d:.0} Hz", .{state.cutoff_hz}, .{});
+            gui.labelFmt("Cutoff\n{d:.0}Hz", .{state.cutoff_hz}, .{});
         }
 
         {
@@ -75,9 +85,6 @@ pub fn drawGui(gui: *Gui, state: *Synth.State) bool {
             }
             gui.labelFmt("Q\n{d:.2}", .{state.resonance}, .{});
         }
-
-        gui.beginPanel("env_panel", .{ .direction = .horizontal, .spacing = 16.0 });
-        defer gui.endPanel();
 
         {
             gui.beginPanel("Attack", .{ .direction = .vertical, .spacing = 4.0 });
@@ -442,18 +449,18 @@ fn mouseListener(state: ?*Gui.InputState, event: Window.MouseEvent) void {
 fn keyListener(state: ?*KeyState, event: Window.KeyEvent) void {
     if (state) |s| {
         const key: ?Synth.Key = switch (event.sym) {
-            'a' => .c4,
-            'w' => .cs4,
-            's' => .d4,
-            'e' => .ds4,
-            'd' => .e4,
-            'f' => .f4,
-            't' => .fs4,
-            'g' => .g4,
-            'y' => .gs4,
-            'h' => .a4,
-            'u' => .as4,
-            'j' => .b4,
+            'a' => .c,
+            'w' => .cs,
+            's' => .d,
+            'e' => .ds,
+            'd' => .e,
+            'f' => .f,
+            't' => .fs,
+            'g' => .g,
+            'y' => .gs,
+            'h' => .a,
+            'u' => .as,
+            'j' => .b,
             else => null,
         };
 
