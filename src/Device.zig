@@ -149,9 +149,6 @@ pub fn setSource(self: *Device, source: Source) !void {
 
     try stream.connect_playback(null, null, .{
         .START_CORKED = true,
-        .FIX_FORMAT = true,
-        .FIX_RATE = true,
-        .FIX_CHANNELS = true,
     }, null, null);
     errdefer _ = stream.disconnect();
 
@@ -163,6 +160,23 @@ pub fn setSource(self: *Device, source: Source) !void {
             .TERMINATED => return error.StreamTerminated,
             else => continue,
         }
+    }
+
+    // Check that we actually got expexted spec
+    const fixed_sample_spec = stream.get_sample_spec();
+    if (fixed_sample_spec.format != sample_format or
+        fixed_sample_spec.rate != sample_rate or
+        fixed_sample_spec.channels != num_channels)
+    {
+        return error.UnexpectedSampleSpec;
+    }
+
+    const fixed_channel_map = stream.get_channel_map();
+    if (fixed_channel_map.channels != num_channels or
+        fixed_channel_map.map[0] != .LEFT or
+        fixed_channel_map.map[1] != .RIGHT)
+    {
+        return error.UnexpectedChannelMap;
     }
 
     // Lets go!
