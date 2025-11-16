@@ -56,6 +56,8 @@ pub fn drawGui(gui: *Gui, state: *Synth.State) bool {
         gui.beginPanel("filter_panel", .{ .direction = .horizontal, .spacing = 16.0 });
         defer gui.endPanel();
 
+        _ = gui.dropdown("waveform", &.{ "SIN", "SAW", "SQR", "TRI" }, @ptrCast(&state.waveform), .{});
+
         {
             gui.beginPanel("Octave", .{ .direction = .vertical, .spacing = 4.0 });
             defer gui.endPanel();

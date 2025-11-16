@@ -9,8 +9,16 @@ pub const EnvelopeParams = struct {
     release_ms: f32 = 150.0,
 };
 
+pub const Waveform = enum(usize) {
+    sine,
+    saw,
+    square,
+    triangle,
+};
+
 pub const State = struct {
     key: ?Key = null,
+    waveform: Waveform = .square,
     octave: i32 = 4,
     cutoff_hz: f32 = 1200.0,
     resonance: f32 = 0.8,
@@ -21,6 +29,7 @@ const Voice = struct {
     phase: f32 = 0.0,
     phase_inc: f32 = 0.0,
     gate: bool = false,
+    waveform: Waveform = .square,
 
     fn noteOn(self: *Voice, frequency: f32) void {
         self.phase_inc = frequency / Device.sample_rate;
@@ -39,7 +48,12 @@ const Voice = struct {
         self.phase += self.phase_inc;
         if (self.phase >= 1.0) self.phase -= 1.0;
 
-        return if (self.phase < 0.5) 1.0 else -1.0;
+        return switch (self.waveform) {
+            .sine => @sin(std.math.tau * self.phase),
+            .saw => 2.0 * self.phase - 1.0,
+            .square => if (self.phase < 0.5) 1.0 else -1.0,
+            .triangle => 1.0 - 4.0 * @abs(self.phase - 0.5),
+        };
     }
 };
 
@@ -155,6 +169,7 @@ pub fn updateState(self: *Synth, state: State) void {
     } else {
         self.voice.noteOff();
     }
+    self.voice.waveform = state.waveform;
 
     self.filter.setParams(state.cutoff_hz, state.resonance);
     self.env.setParams(state.env);
@@ -173,6 +188,7 @@ pub fn render(self: *Synth, buffer: []u8) void {
     var offset: usize = 0;
     while (offset + frame_len <= buffer.len) {
         var sample = self.voice.sample();
+
         sample = self.filter.process(sample);
 
         const env_value = self.env.process(if (self.voice.gate) 1.0 else 0.0);
