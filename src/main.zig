@@ -338,8 +338,10 @@ pub fn main() !void {
     const gpu: *Gpu = try .create(
         gpa,
         .{
-            .display = window.display,
-            .surface = window.surface,
+            .wayland = .{
+                .display = window.display,
+                .surface = window.surface,
+            },
         },
         .{ 800, 500 },
     );
@@ -445,6 +447,7 @@ fn mouseListener(state: ?*Gui.InputState, event: Window.MouseEvent) void {
                     s.mouse_left_down = button.state == .pressed;
                 }
             },
+            .scroll => {},
         }
     }
 }
@@ -599,8 +602,7 @@ pub const GuiPass = struct {
         frame: sgpu.Frame,
         gui: *const Gui,
     ) void {
-        var pass = cmd.beginRenderPass(&.{
-            .label = "gui",
+        var pass = cmd.beginRenderPass("gui", &.{
             .color_attachments = &.{
                 .{
                     .view = frame.view,
