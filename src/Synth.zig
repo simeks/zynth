@@ -18,7 +18,9 @@ pub const Waveform = enum(usize) {
 
 pub const State = struct {
     key: ?Key = null,
-    waveform: Waveform = .square,
+    waveform1: Waveform = .square,
+    waveform2: Waveform = .square,
+    shift_st: f32 = 0.0,
     octave: i32 = 4,
     cutoff_hz: f32 = 1200.0,
     resonance: f32 = 0.8,
@@ -141,17 +143,22 @@ const LowPassFilter = struct {
 state: State,
 mutex: std.Thread.Mutex,
 
-voice: Voice,
+voice1: Voice,
+voice2: Voice,
 filter: LowPassFilter,
 env: Envelope,
+
+prev_shift: f32,
 
 pub fn init() Synth {
     return .{
         .state = .{},
         .mutex = .{},
-        .voice = .{},
+        .voice1 = .{},
+        .voice2 = .{},
         .filter = .init(),
         .env = .init(),
+        .prev_shift = 0.0,
     };
 }
 pub fn deinit(self: *Synth) void {
@@ -165,11 +172,21 @@ pub fn updateState(self: *Synth, state: State) void {
     self.state = state;
 
     if (state.key) |key| {
-        self.voice.noteOn(keyFrequency(key, state.octave));
+        // A bit hacky but its to sync the phase when removing the shift
+        if (state.shift_st == 0.0 and self.prev_shift != 0.0) {
+            self.voice2.phase = self.voice1.phase;
+        }
+        self.prev_shift = state.shift_st;
+
+        const base_freq = keyFrequency(key, state.octave);
+        self.voice1.noteOn(base_freq);
+        self.voice2.noteOn(base_freq * std.math.pow(f32, 2.0, state.shift_st / 12.0));
     } else {
-        self.voice.noteOff();
+        self.voice1.noteOff();
+        self.voice2.noteOff();
     }
-    self.voice.waveform = state.waveform;
+    self.voice1.waveform = state.waveform1;
+    self.voice2.waveform = state.waveform2;
 
     self.filter.setParams(state.cutoff_hz, state.resonance);
     self.env.setParams(state.env);
@@ -187,13 +204,15 @@ pub fn render(self: *Synth, buffer: []u8) void {
 
     var offset: usize = 0;
     while (offset + frame_len <= buffer.len) {
-        var sample = self.voice.sample();
+        const s1 = self.voice1.sample();
+        const s2 = self.voice2.sample();
 
-        sample = self.filter.process(sample);
+        var sample = self.filter.process((s1 + s2) * 0.5);
 
-        const env_value = self.env.process(if (self.voice.gate) 1.0 else 0.0);
-        if (!self.voice.gate and env_value <= 0.0001) {
-            self.voice.phase_inc = 0.0;
+        const env_value = self.env.process(if (self.voice1.gate) 1.0 else 0.0);
+        if (!self.voice1.gate and env_value <= 0.0001) {
+            self.voice1.phase_inc = 0.0;
+            self.voice2.phase_inc = 0.0;
         }
 
         sample = 0.2 * env_value * sample;

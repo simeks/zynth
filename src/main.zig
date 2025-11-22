@@ -56,7 +56,13 @@ pub fn drawGui(gui: *Gui, state: *Synth.State) bool {
         gui.beginPanel("filter_panel", .{ .direction = .horizontal, .spacing = 16.0 });
         defer gui.endPanel();
 
-        _ = gui.dropdown("waveform", &.{ "SIN", "SAW", "SQR", "TRI" }, @ptrCast(&state.waveform), .{});
+        {
+            gui.beginPanel("Waveform", .{ .direction = .vertical, .spacing = 4.0 });
+            defer gui.endPanel();
+
+            _ = gui.dropdown("waveform1", &.{ "SIN", "SAW", "SQR", "TRI" }, @ptrCast(&state.waveform1), .{});
+            _ = gui.dropdown("waveform2", &.{ "SIN", "SAW", "SQR", "TRI" }, @ptrCast(&state.waveform2), .{});
+        }
 
         {
             gui.beginPanel("Octave", .{ .direction = .vertical, .spacing = 4.0 });
@@ -66,6 +72,19 @@ pub fn drawGui(gui: *Gui, state: *Synth.State) bool {
                 changed = true;
             }
             gui.labelFmt("Octave\n{d}", .{state.octave}, .{});
+        }
+
+        {
+            gui.beginPanel("Voice Shift", .{ .direction = .vertical, .spacing = 4.0 });
+            defer gui.endPanel();
+
+            if (gui.knob("voice_shift", &state.shift_st, -12.0, 12.0, .{})) {
+                // Round to 1 decimal, otherwise we get decimals not displayed
+                state.shift_st = std.math.round(10.0 * state.shift_st) / 10.0;
+                if (state.shift_st == -0.0) state.shift_st = 0.0;
+                changed = true;
+            }
+            gui.labelFmt("Shift\n{d:.1} st", .{state.shift_st}, .{});
         }
 
         {
@@ -343,7 +362,7 @@ pub fn main() !void {
                 .surface = window.surface,
             },
         },
-        .{ 800, 500 },
+        .{ 900, 500 },
     );
     defer gpu.destroy();
 
